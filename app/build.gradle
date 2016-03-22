@@ -130,6 +130,9 @@ dependencies {
     // JSON
     compile 'com.google.code.gson:gson:2.6.2'
 
+    // YAML
+    compile 'org.yaml:snakeyaml:1.17'
+
     // Disk cache
     compile 'com.jakewharton:disklrucache:2.0.2'
 
