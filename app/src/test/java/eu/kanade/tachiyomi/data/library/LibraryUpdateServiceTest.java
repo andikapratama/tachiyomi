@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.BuildConfig;
 import eu.kanade.tachiyomi.CustomRobolectricGradleTestRunner;
 import eu.kanade.tachiyomi.data.database.models.Chapter;
 import eu.kanade.tachiyomi.data.database.models.Manga;
+import eu.kanade.tachiyomi.data.source.base.OnlineSource;
 import eu.kanade.tachiyomi.data.source.base.Source;
 import rx.Observable;
 
@@ -38,14 +39,14 @@ public class LibraryUpdateServiceTest {
     ShadowApplication app;
     Context context;
     LibraryUpdateService service;
-    Source source;
+    OnlineSource source;
 
     @Before
     public void setup() {
         app = ShadowApplication.getInstance();
         context = app.getApplicationContext();
         service = Robolectric.setupService(LibraryUpdateService.class);
-        source = mock(Source.class);
+        source = mock(OnlineSource.class);
         when(service.sourceManager.get(anyInt())).thenReturn(source);
     }
 
@@ -65,7 +66,7 @@ public class LibraryUpdateServiceTest {
         Manga manga = Manga.create("manga1");
         List<Chapter> chapters = createChapters("/chapter1", "/chapter2");
 
-        when(source.pullChaptersFromNetwork(manga.url)).thenReturn(Observable.just(chapters));
+        when(source.fetchChapters(manga)).thenReturn(Observable.just(chapters));
         when(service.db.insertOrRemoveChapters(manga, chapters, source))
                 .thenReturn(Observable.just(Pair.create(2, 0)));
 
@@ -88,9 +89,9 @@ public class LibraryUpdateServiceTest {
         when(service.db.getFavoriteMangas().executeAsBlocking()).thenReturn(favManga);
 
         // One of the updates will fail
-        when(source.pullChaptersFromNetwork("manga1")).thenReturn(Observable.just(chapters));
-        when(source.pullChaptersFromNetwork("manga2")).thenReturn(Observable.<List<Chapter>>error(new Exception()));
-        when(source.pullChaptersFromNetwork("manga3")).thenReturn(Observable.just(chapters3));
+        when(source.fetchChapters(manga1)).thenReturn(Observable.just(chapters));
+        when(source.fetchChapters(manga2)).thenReturn(Observable.<List<Chapter>>error(new Exception()));
+        when(source.fetchChapters(manga3)).thenReturn(Observable.just(chapters3));
 
         when(service.db.insertOrRemoveChapters(manga1, chapters, source)).thenReturn(Observable.just(Pair.create(2, 0)));
         when(service.db.insertOrRemoveChapters(manga3, chapters, source)).thenReturn(Observable.just(Pair.create(2, 0)));
@@ -98,7 +99,7 @@ public class LibraryUpdateServiceTest {
         service.updateLibrary().subscribe();
 
         // There are 3 network attempts and 2 insertions (1 request failed)
-        verify(source, times(3)).pullChaptersFromNetwork((String)any());
+        verify(source, times(3)).fetchChapters((Manga)any());
         verify(service.db, times(2)).insertOrRemoveChapters((Manga)any(), anyListOf(Chapter.class), (Source)any());
         verify(service.db, never()).insertOrRemoveChapters(eq(manga2), anyListOf(Chapter.class), (Source)any());
     }

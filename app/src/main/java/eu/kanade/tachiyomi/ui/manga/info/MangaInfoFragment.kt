@@ -10,6 +10,7 @@ import com.bumptech.glide.load.model.GlideUrl
 import com.bumptech.glide.signature.StringSignature
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.database.models.Manga
+import eu.kanade.tachiyomi.data.source.base.OnlineSource
 import eu.kanade.tachiyomi.data.source.base.Source
 import eu.kanade.tachiyomi.ui.base.fragment.BaseRxFragment
 import kotlinx.android.synthetic.main.fragment_manga_info.*
@@ -79,7 +80,7 @@ class MangaInfoFragment : BaseRxFragment<MangaInfoPresenter>() {
 
         // If manga source is known update source TextView.
         if (source != null) {
-            manga_source.text = source.visibleName
+            manga_source.text = source.toString()
         }
 
         // Update genres TextView.
@@ -96,7 +97,7 @@ class MangaInfoFragment : BaseRxFragment<MangaInfoPresenter>() {
 
         // Initialize CoverCache and Glide headers to retrieve cover information.
         val coverCache = presenter.coverCache
-        val headers = presenter.source.glideHeaders
+        val headers = presenter.source.let { if (it is OnlineSource) it.glideHeaders else null }
 
         // Check if thumbnail_url is given.
         manga.thumbnail_url?.let { url ->

@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.database.DatabaseHelper
 import eu.kanade.tachiyomi.data.database.models.Manga
 import eu.kanade.tachiyomi.data.source.SourceManager
+import eu.kanade.tachiyomi.data.source.base.OnlineSource
 import eu.kanade.tachiyomi.data.source.base.Source
 import eu.kanade.tachiyomi.event.ChapterCountEvent
 import eu.kanade.tachiyomi.event.MangaEvent
@@ -100,7 +101,7 @@ class MangaInfoPresenter : BasePresenter<MangaInfoFragment>() {
      * @return manga information.
      */
     private fun fetchMangaObs(): Observable<Manga> {
-        return source.pullMangaFromNetwork(manga.url)
+        return source.fetchMangaDetails(manga)
                 .flatMap { networkManga ->
                     manga.copyFrom(networkManga)
                     db.insertManga(manga).executeAsBlocking()
@@ -128,7 +129,8 @@ class MangaInfoPresenter : BasePresenter<MangaInfoFragment>() {
      */
     private fun onMangaFavoriteChange(isFavorite: Boolean) {
         if (isFavorite) {
-            coverCache.save(manga.thumbnail_url, source.glideHeaders)
+            val headers = source.let { if (it is OnlineSource) it.glideHeaders else null }
+            coverCache.save(manga.thumbnail_url, headers)
         } else {
             coverCache.deleteFromCache(manga.thumbnail_url)
         }

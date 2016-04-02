@@ -6,6 +6,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.signature.StringSignature
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.database.models.Manga
+import eu.kanade.tachiyomi.data.source.base.OnlineSource
 import eu.kanade.tachiyomi.data.source.base.Source
 import eu.kanade.tachiyomi.ui.base.adapter.FlexibleViewHolder
 import kotlinx.android.synthetic.main.item_catalogue_grid.view.*
@@ -56,7 +57,8 @@ class LibraryHolder(private val view: View, private val adapter: LibraryCategory
      */
     private fun loadCover(manga: Manga, source: Source, coverCache: CoverCache) {
         if (!manga.thumbnail_url.isNullOrEmpty()) {
-            coverCache.saveOrLoadFromCache(manga.thumbnail_url, source.glideHeaders) {
+			val headers = if (source is OnlineSource) source.glideHeaders else null
+            coverCache.saveOrLoadFromCache(manga.thumbnail_url, headers) {
                 if (adapter.fragment.isResumed && this.manga == manga) {
                     Glide.with(view.context)
                             .load(it)

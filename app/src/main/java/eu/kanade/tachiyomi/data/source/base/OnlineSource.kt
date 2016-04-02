@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.data.source.newbase
+package eu.kanade.tachiyomi.data.source.base
 
 import android.content.Context
 import com.bumptech.glide.load.model.LazyHeaders
@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.data.database.models.Chapter
 import eu.kanade.tachiyomi.data.database.models.Manga
 import eu.kanade.tachiyomi.data.network.NetworkHelper
 import eu.kanade.tachiyomi.data.network.get
+import eu.kanade.tachiyomi.data.preference.PreferencesHelper
 import eu.kanade.tachiyomi.data.source.Language
 import eu.kanade.tachiyomi.data.source.model.MangasPage
 import eu.kanade.tachiyomi.data.source.model.Page
@@ -18,7 +19,7 @@ import rx.Observable
 import javax.inject.Inject
 
 @Suppress("unused")
-abstract class OnlineSource(context: Context) : SourceKt() {
+abstract class OnlineSource(context: Context) : Source {
 
     abstract val baseUrl: String
 
@@ -26,11 +27,13 @@ abstract class OnlineSource(context: Context) : SourceKt() {
 
     val headers by lazy { headersBuilder().build() }
 
-    val glideHeaders by lazy { glideHeadersBuilder().build() }
+    open val glideHeaders: LazyHeaders? by lazy { null }
 
     @Inject lateinit var networkService: NetworkHelper
 
     @Inject lateinit var chapterCache: ChapterCache
+
+    @Inject lateinit var preferences: PreferencesHelper
 
     init {
         App.get(context).component.inject(this)
@@ -48,16 +51,25 @@ abstract class OnlineSource(context: Context) : SourceKt() {
         }
     }
 
+    override fun toString() = "$name (${lang.code})"
+
     // Login source
-    fun isLoginRequired() = false
+
+    open fun isLoginRequired() = false
+
+    open fun isLogged(): Boolean = throw Exception("Not implemented")
+
+    open fun login(username: String, password: String): Observable<Boolean> = throw Exception("Not implemented")
+
+    open fun isAuthenticationSuccessful(response: Response): Boolean = throw Exception("Not implemented")
 
     // Popular manga
 
-    abstract fun getInitialPopularMangasUrl(): String
+    abstract fun getInitialPopularMangaUrl(): String
 
     open fun popularMangaRequest(page: MangasPage): Request {
         if (page.page == 1) {
-            page.url = getInitialPopularMangasUrl()
+            page.url = getInitialPopularMangaUrl()
         }
         return get(page.url, headers)
     }
@@ -87,11 +99,11 @@ abstract class OnlineSource(context: Context) : SourceKt() {
             .map { html ->
                 page.apply {
                     mangas = mutableListOf<Manga>()
-                    parseSearchFromHtml(html, this)
+                    parseSearchFromHtml(html, this, query)
                 }
             }
 
-    abstract fun parseSearchFromHtml(html: String, page: MangasPage)
+    abstract fun parseSearchFromHtml(html: String, page: MangasPage, query: String)
 
     // Manga details
 

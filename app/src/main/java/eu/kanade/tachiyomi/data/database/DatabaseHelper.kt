@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.data.database.resolvers.LibraryMangaGetResolver
 import eu.kanade.tachiyomi.data.database.resolvers.MangaChapterGetResolver
 import eu.kanade.tachiyomi.data.database.tables.*
 import eu.kanade.tachiyomi.data.mangasync.base.MangaSyncService
+import eu.kanade.tachiyomi.data.source.base.OnlineSource
 import eu.kanade.tachiyomi.data.source.base.Source
 import eu.kanade.tachiyomi.util.ChapterRecognition
 import rx.Observable
@@ -184,7 +185,9 @@ open class DatabaseHelper(context: Context) {
                 .filter { it !in dbChapters }
                 .doOnNext { c ->
                     c.manga_id = manga.id
-                    source.parseChapterNumber(c)
+                    if (source is OnlineSource) {
+                        source.parseChapterNumber(c)
+                    }
                     ChapterRecognition.parseChapterNumber(c, manga)
                 }.toList()
 

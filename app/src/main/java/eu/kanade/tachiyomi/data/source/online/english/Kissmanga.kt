@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.data.source.newbase
+package eu.kanade.tachiyomi.data.source.online.english
 
 import android.content.Context
 import android.net.Uri
@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.data.network.get
 import eu.kanade.tachiyomi.data.network.post
 import eu.kanade.tachiyomi.data.source.EN
 import eu.kanade.tachiyomi.data.source.Language
+import eu.kanade.tachiyomi.data.source.base.ParsedOnlineSource
 import eu.kanade.tachiyomi.data.source.model.MangasPage
 import eu.kanade.tachiyomi.data.source.model.Page
 import okhttp3.FormBody
@@ -18,8 +19,7 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.regex.Pattern
 
-class NewKissmanga(context: Context) : ParsedOnlineSource(context) {
-
+class Kissmanga(context: Context, override val id: Int) : ParsedOnlineSource(context) {
 
     override val name = "Kissmanga"
 
@@ -31,12 +31,14 @@ class NewKissmanga(context: Context) : ParsedOnlineSource(context) {
 
     override fun headersBuilder() = super.headersBuilder().add("Host", "kissmanga.com")
 
-    override fun getInitialPopularMangasUrl() = "$baseUrl/MangaList/MostPopular"
+    override val glideHeaders by lazy { glideHeadersBuilder().build() }
+
+    override fun getInitialPopularMangaUrl() = "$baseUrl/MangaList/MostPopular"
 
     override fun getPopularMangaSelector() = "table.listing tr:gt(1)"
 
     override fun constructPopularMangaFromElement(element: Element, manga: Manga) {
-        element.select("td a:eq(0)").first()?.let {
+        element.select("td a:eq(0)").first().let {
             manga.setUrl(it.attr("href"))
             manga.title = it.text()
         }
@@ -72,7 +74,6 @@ class NewKissmanga(context: Context) : ParsedOnlineSource(context) {
     override fun constructMangaFromDocument(document: Document, manga: Manga) {
         val infoElement = document.select("div.barContent").first()
 
-        manga.title = infoElement.select("a.bigChar").first().text()
         manga.author = infoElement.select("p:has(span:contains(Author:)) > a").first()?.text()
         manga.genre = infoElement.select("p:has(span:contains(Genres:)) > *:gt(0)").text()
         manga.description = infoElement.select("p:has(span:contains(Summary:)) ~ p").text()
@@ -112,10 +113,7 @@ class NewKissmanga(context: Context) : ParsedOnlineSource(context) {
 
         var i = 0
         while (m.find()) {
-            Page(i++, "").apply {
-                imageUrl = m.group(1)
-                pages.add(this)
-            }
+            pages.add(Page(i++, "", m.group(1)))
         }
     }
 

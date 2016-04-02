@@ -69,7 +69,7 @@ class NetworkHelper(context: Context) {
                     .build()
 
             progressClient.newCall(request).execute()
-        }.retry(1)
+        }
     }
 
     val cookies: CookieStore

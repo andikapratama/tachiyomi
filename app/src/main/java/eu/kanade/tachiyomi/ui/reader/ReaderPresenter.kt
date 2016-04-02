@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.data.mangasync.MangaSyncManager
 import eu.kanade.tachiyomi.data.mangasync.UpdateMangaSyncService
 import eu.kanade.tachiyomi.data.preference.PreferencesHelper
 import eu.kanade.tachiyomi.data.source.SourceManager
+import eu.kanade.tachiyomi.data.source.base.OnlineSource
 import eu.kanade.tachiyomi.data.source.base.Source
 import eu.kanade.tachiyomi.data.source.model.Page
 import eu.kanade.tachiyomi.event.ReaderEvent
@@ -128,9 +129,16 @@ class ReaderPresenter : BasePresenter<ReaderActivity>() {
                         observable = Observable.from(ch.pages)
                                 .flatMap { downloadManager.getDownloadedImage(it, chapterDir) }
                     } else {
-                        observable = source.getAllImageUrlsFromPageList(ch.pages)
-                                .flatMap({ source.getCachedImage(it) }, 2)
-                                .doOnCompleted { source.savePageList(ch.url, ch.pages) }
+                        observable = source.let { source ->
+                            if (source is OnlineSource) {
+                                source.fetchAllImageUrlsFromPageList(ch.pages)
+                                        .flatMap({ source.getCachedImage(it) }, 2)
+                                        .doOnCompleted { source.savePageList(ch, ch.pages) }
+                            } else {
+                                Observable.from(ch.pages)
+                                        .flatMap { source.fetchImage(it) }
+                            }
+                        }
                     }
                     observable.doOnCompleted {
                         if (!isSeamlessMode && chapter === ch) {
@@ -141,13 +149,7 @@ class ReaderPresenter : BasePresenter<ReaderActivity>() {
 
         // Listen por retry events
         add(retryPageSubject.observeOn(Schedulers.io())
-                .flatMap { page ->
-                    if (page.imageUrl == null)
-                        source.getImageUrlFromPage(page)
-                    else
-                        Observable.just<Page>(page)
-                }
-                .flatMap { source.getCachedImage(it) }
+                .flatMap { source.fetchImage(it) }
                 .subscribe())
     }
 
@@ -158,7 +160,7 @@ class ReaderPresenter : BasePresenter<ReaderActivity>() {
             Observable.just(downloadManager.getSavedPageList(source, manga, chapter)!!)
         else
         // Fetch the page list from cache or fallback to network
-            source.getCachedPageListOrPullFromNetwork(chapter.url)
+            source.fetchPageList(chapter)
                     .subscribeOn(Schedulers.io())
                     .observeOn(AndroidSchedulers.mainThread())
 
@@ -194,26 +196,15 @@ class ReaderPresenter : BasePresenter<ReaderActivity>() {
 
     // Preload the first pages of the next chapter. Only for non seamless mode
     private fun getPreloadNextChapterObservable(): Observable<Page> {
-        return source.getCachedPageListOrPullFromNetwork(nextChapter!!.url)
+        val nextChapter = nextChapter ?: return Observable.error(Exception("No next chapter"))
+        return source.fetchPageList(nextChapter)
                 .flatMap { pages ->
-                    nextChapter!!.pages = pages
+                    nextChapter.pages = pages
                     val pagesToPreload = Math.min(pages.size, 5)
                     Observable.from(pages).take(pagesToPreload)
                 }
                 // Preload up to 5 images
-                .concatMap { page ->
-                    if (page.imageUrl == null)
-                        source.getImageUrlFromPage(page)
-                    else
-                        Observable.just<Page>(page)
-                }
-                // Download the first image
-                .concatMap { page ->
-                    if (page.pageNumber == 0)
-                        source.getCachedImage(page)
-                    else
-                        Observable.just<Page>(page)
-                }
+                .concatMap { source.fetchImage(it) }
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .doOnCompleted { stopPreloadingNextChapter() }
@@ -318,7 +309,7 @@ class ReaderPresenter : BasePresenter<ReaderActivity>() {
 
         // Cache current page list progress for online chapters to allow a faster reopen
         if (!chapter.isDownloaded) {
-            source.savePageList(chapter.url, pages)
+            source.let { if (it is OnlineSource) it.savePageList(chapter, pages) }
         }
 
         // Save current progress of the chapter. Mark as read if the chapter is finished
@@ -376,7 +367,7 @@ class ReaderPresenter : BasePresenter<ReaderActivity>() {
     }
 
     fun updateMangaSyncLastChapterRead() {
-        for (mangaSync in mangaSyncList!!) {
+        for (mangaSync in mangaSyncList ?: emptyList()) {
             val service = syncManager.getService(mangaSync.sync_id)
             if (service.isLogged && mangaSync.update) {
                 UpdateMangaSyncService.start(context, mangaSync)
@@ -411,16 +402,21 @@ class ReaderPresenter : BasePresenter<ReaderActivity>() {
     }
 
     private fun preloadNextChapter() {
-        if (hasNextChapter() && !isChapterDownloaded(nextChapter!!)) {
-            start(PRELOAD_NEXT_CHAPTER)
+        nextChapter?.let {
+            if (!isChapterDownloaded(it)) {
+                start(PRELOAD_NEXT_CHAPTER)
+            }
         }
     }
 
     private fun stopPreloadingNextChapter() {
         if (!isUnsubscribed(PRELOAD_NEXT_CHAPTER)) {
             stop(PRELOAD_NEXT_CHAPTER)
-            if (nextChapter!!.pages != null)
-                source.savePageList(nextChapter!!.url, nextChapter!!.pages)
+            nextChapter?.let { chapter ->
+                if (chapter.pages != null) {
+                    source.let { if (it is OnlineSource) it.savePageList(chapter, chapter.pages) }
+                }
+            }
         }
     }
 

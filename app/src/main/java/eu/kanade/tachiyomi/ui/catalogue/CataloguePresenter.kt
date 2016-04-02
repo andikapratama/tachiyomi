@@ -6,7 +6,7 @@ import eu.kanade.tachiyomi.data.database.models.Manga
 import eu.kanade.tachiyomi.data.preference.PreferencesHelper
 import eu.kanade.tachiyomi.data.preference.getOrDefault
 import eu.kanade.tachiyomi.data.source.SourceManager
-import eu.kanade.tachiyomi.data.source.base.Source
+import eu.kanade.tachiyomi.data.source.base.OnlineSource
 import eu.kanade.tachiyomi.data.source.model.MangasPage
 import eu.kanade.tachiyomi.ui.base.presenter.BasePresenter
 import eu.kanade.tachiyomi.util.RxPager
@@ -45,7 +45,7 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
     /**
      * Active source.
      */
-    lateinit var source: Source
+    lateinit var source: OnlineSource
         private set
 
     /**
@@ -100,7 +100,7 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
         super.onCreate(savedState)
 
         if (savedState != null) {
-            source = sourceManager.get(savedState.getInt(ACTIVE_SOURCE_KEY))!!
+            source = sourceManager.get(savedState.getInt(ACTIVE_SOURCE_KEY)) as OnlineSource
         }
 
         pager = RxPager()
@@ -152,7 +152,7 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
      *
      * @param source the active source.
      */
-    fun startRequesting(source: Source) {
+    fun startRequesting(source: OnlineSource) {
         this.source = source
         restartRequest(null)
     }
@@ -202,10 +202,12 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
             nextMangasPage.url = lastMangasPage!!.nextPageUrl
         }
 
-        val obs = if (query.isNullOrEmpty())
-            source.pullPopularMangasFromNetwork(nextMangasPage)
-        else
-            source.searchMangasFromNetwork(nextMangasPage, query!!)
+        val obs = query.let {
+            if (it.isNullOrEmpty())
+                source.fetchPopularManga(nextMangasPage)
+            else
+                source.searchManga(nextMangasPage, it!!)
+        }
 
         return obs.subscribeOn(Schedulers.io())
                 .doOnNext { lastMangasPage = it }
@@ -249,7 +251,7 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
      * @return an observable of the manga to initialize
      */
     private fun getMangaDetailsObservable(manga: Manga): Observable<Manga> {
-        return source.pullMangaFromNetwork(manga.url)
+        return source.fetchMangaDetails(manga)
                 .flatMap { networkManga ->
                     manga.copyFrom(networkManga)
                     db.insertManga(manga).executeAsBlocking()
@@ -284,8 +286,8 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
      * @param source the source to check.
      * @return true if the source is valid, false otherwise.
      */
-    fun isValidSource(source: Source): Boolean = with(source) {
-        if (!isLoginRequired || isLogged)
+    fun isValidSource(source: OnlineSource): Boolean = with(source) {
+        if (!isLoginRequired() || isLogged())
             return true
 
         prefs.getSourceUsername(this) != "" && prefs.getSourcePassword(this) != ""
@@ -312,7 +314,7 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
     /**
      * Returns a list of enabled sources ordered by language and name.
      */
-    private fun getEnabledSources(): List<Source> {
+    private fun getEnabledSources(): List<OnlineSource> {
         val languages = prefs.enabledLanguages().getOrDefault()
 
         // Ensure at least one language
@@ -320,7 +322,7 @@ class CataloguePresenter : BasePresenter<CatalogueFragment>() {
             languages.add("EN")
         }
 
-        return sourceManager.getSources()
+        return sourceManager.getOnlineSources()
                 .filter { it.lang.code in languages }
                 .sortedBy { "(${it.lang.code}) ${it.name}" }
     }

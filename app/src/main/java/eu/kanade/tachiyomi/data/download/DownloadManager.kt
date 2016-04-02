@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.data.download.model.DownloadQueue
 import eu.kanade.tachiyomi.data.preference.PreferencesHelper
 import eu.kanade.tachiyomi.data.source.SourceManager
+import eu.kanade.tachiyomi.data.source.base.OnlineSource
 import eu.kanade.tachiyomi.data.source.base.Source
 import eu.kanade.tachiyomi.data.source.model.Page
 import eu.kanade.tachiyomi.event.DownloadChaptersEvent
@@ -26,7 +27,6 @@ import rx.subjects.BehaviorSubject
 import rx.subjects.PublishSubject
 import timber.log.Timber
 import java.io.File
-import java.io.FileOutputStream
 import java.io.FileReader
 import java.io.IOException
 import java.util.*
@@ -97,7 +97,7 @@ class DownloadManager(private val context: Context, private val sourceManager: S
     // Create a download object for every chapter in the event and add them to the downloads queue
     fun onDownloadChaptersEvent(event: DownloadChaptersEvent) {
         val manga = event.manga
-        val source = sourceManager.get(manga.source)
+        val source = sourceManager.get(manga.source) as? OnlineSource ?: return
 
         // Used to avoid downloading chapters with the same name
         val addedChapters = ArrayList<String>()
@@ -166,7 +166,7 @@ class DownloadManager(private val context: Context, private val sourceManager: S
 
         val pageListObservable = if (download.pages == null)
             // Pull page list from network and add them to download object
-            download.source.pullPageListFromNetwork(download.chapter.url)
+            download.source.fetchPageListFromNetwork(download.chapter)
                     .doOnNext { pages ->
                         download.pages = pages
                         savePageList(download)
@@ -175,13 +175,13 @@ class DownloadManager(private val context: Context, private val sourceManager: S
             // Or if the page list already exists, start from the file
             Observable.just(download.pages)
 
-        return Observable.defer<Download> { pageListObservable
+        return Observable.defer { pageListObservable
                 .doOnNext { pages ->
                     download.downloadedImages = 0
                     download.status = Download.DOWNLOADING
                 }
                 // Get all the URLs to the source images, fetch pages if necessary
-                .flatMap { download.source.getAllImageUrlsFromPageList(it) }
+                .flatMap { download.source.fetchAllImageUrlsFromPageList(it) }
                 // Start downloading images, consider we can have downloaded images already
                 .concatMap { page -> getOrDownloadImage(page, download) }
                 // Do after download completes
@@ -228,13 +228,13 @@ class DownloadManager(private val context: Context, private val sourceManager: S
     }
 
     // Save image on disk
-    private fun downloadImage(page: Page, source: Source, directory: File, filename: String): Observable<Page> {
+    private fun downloadImage(page: Page, source: OnlineSource, directory: File, filename: String): Observable<Page> {
         page.status = Page.DOWNLOAD_IMAGE
-        return source.getImageProgressResponse(page)
-                .flatMap({ resp ->
+        return source.imageResponse(page)
+                .flatMap { resp ->
                     DiskUtils.saveBufferedSourceToDirectory(resp.body().source(), directory, filename)
                     Observable.just(page)
-                }).retry(2)
+                }.retry(2)
     }
 
     // Public method to get the image from the filesystem. It does NOT provide any way to download the image
@@ -306,26 +306,15 @@ class DownloadManager(private val context: Context, private val sourceManager: S
         val chapterDir = getAbsoluteChapterDirectory(source, manga, chapter)
         val pagesFile = File(chapterDir, PAGE_LIST_FILE)
 
-        var reader: JsonReader? = null
-        try {
-            if (pagesFile.exists()) {
-                reader = JsonReader(FileReader(pagesFile.absolutePath))
-                val collectionType = object : TypeToken<List<Page>>() {
-
-                }.type
-                return gson.fromJson<List<Page>>(reader, collectionType)
+        return JsonReader(FileReader(pagesFile.absolutePath)).use {
+            try {
+                val collectionType = object : TypeToken<List<Page>>() {}.type
+                gson.fromJson(it, collectionType)
+            } catch (e: Exception) {
+                Timber.e(e, e.message)
+                null
             }
-        } catch (e: Exception) {
-            Timber.e(e.cause, e.message)
-        } finally {
-            if (reader != null) try {
-                reader.close()
-            } catch (e: IOException) {
-                /* Do nothing */
-            }
-
         }
-        return null
     }
 
     // Shortcut for the method above
@@ -338,20 +327,13 @@ class DownloadManager(private val context: Context, private val sourceManager: S
         val chapterDir = getAbsoluteChapterDirectory(source, manga, chapter)
         val pagesFile = File(chapterDir, PAGE_LIST_FILE)
 
-        var out: FileOutputStream? = null
-        try {
-            out = FileOutputStream(pagesFile)
-            out.write(gson.toJson(pages).toByteArray())
-            out.flush()
-        } catch (e: IOException) {
-            Timber.e(e.cause, e.message)
-        } finally {
-            if (out != null) try {
-                out.close()
+        pagesFile.outputStream().use {
+            try {
+                it.write(gson.toJson(pages).toByteArray())
+                it.flush()
             } catch (e: IOException) {
-                /* Do nothing */
+                Timber.e(e, e.message)
             }
-
         }
     }
 
@@ -361,7 +343,7 @@ class DownloadManager(private val context: Context, private val sourceManager: S
     }
 
     fun getAbsoluteMangaDirectory(source: Source, manga: Manga): File {
-        val mangaRelativePath = source.visibleName +
+        val mangaRelativePath = source.toString() +
                 File.separator +
                 manga.title.replace("[^\\sa-zA-Z0-9.-]".toRegex(), "_")
 
